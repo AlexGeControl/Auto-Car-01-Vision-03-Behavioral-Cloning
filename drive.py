@@ -12,6 +12,9 @@ from PIL import Image
 from flask import Flask
 from io import BytesIO
 
+# Preprocessing:
+from behavioral_cloning.preprocessors import Preprocessor
+# Model:
 from keras.models import load_model
 import h5py
 from keras import __version__ as keras_version
@@ -21,6 +24,7 @@ app = Flask(__name__)
 model = None
 prev_image_array = None
 
+preprocessor = Preprocessor()
 
 class SimplePIController:
     def __init__(self, Kp, Ki):
@@ -42,11 +46,9 @@ class SimplePIController:
 
         return self.Kp * self.error + self.Ki * self.integral
 
-
-controller = SimplePIController(0.1, 0.002)
+controller = SimplePIController(0.1, 0.001)
 set_speed = 9
 controller.set_desired(set_speed)
-
 
 @sio.on('telemetry')
 def telemetry(sid, data):
@@ -61,7 +63,10 @@ def telemetry(sid, data):
         imgString = data["image"]
         image = Image.open(BytesIO(base64.b64decode(imgString)))
         image_array = np.asarray(image)
-        steering_angle = float(model.predict(image_array[None, :, :, :], batch_size=1))
+        # Preprocessing:
+        processed_image_array = preprocessor.transform(image_array[None, :, :, :])
+        # Predict:
+        steering_angle = float(model.predict(processed_image_array, batch_size=1))
 
         throttle = controller.update(float(speed))
 

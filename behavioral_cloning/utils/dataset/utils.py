@@ -11,7 +11,7 @@ import numpy as np
 import cv2
 import tensorflow as tf
 
-from dataset import Dataset
+from .dataset import Dataset
 
 def _int64_feature(value):
     """ Wrapper for Int64List
@@ -121,16 +121,14 @@ def write_to_tfrecord(dataset_path):
 def read_from_tfrecord(
     filenames,
     image_size = [160, 320, 3],
-    num_epochs = 10,
-    batch_size = 128,
-    capacity = 1024, min_after_dequeue = 512
+    num_epochs = 10
 ):
     """ Read dataset from TFRecords
     """
     # Initialize reader:
     reader_queue = tf.train.string_input_producer(
         filenames,
-        num_epochs = num_epochs,
+        num_epochs = 10,
         name = "queue"
     )
     reader = tf.TFRecordReader()
@@ -152,12 +150,7 @@ def read_from_tfrecord(
     # Reconstruct the image by its shape:
     image = tf.reshape(image, image_size)
 
-    images_batch, labels_batch = tf.train.shuffle_batch(
-        [image, label], batch_size = batch_size,
-        capacity = capacity, min_after_dequeue = min_after_dequeue
-    )
-
-    return (images_batch, labels_batch)
+    return (image, label)
 
 if __name__ == '__main__':
     # Parse command-line arguments:
@@ -171,13 +164,23 @@ if __name__ == '__main__':
     args = vars(parser.parse_args())
 
     # Use case 01 -- write dataset as TFRecords:
-    filename = write_to_tfrecord(args["dataset"])
+    # filename = write_to_tfrecord(args["dataset"])
 
     # Use case 02 -- Read from TFRecords
-    images_batch, labels_batch = read_from_tfrecord(
+    image, label = read_from_tfrecord(
         [
             join(args["dataset"], 'dataset.tfrecords')
-        ]
+        ],
+        num_epochs=1
+    )
+
+    batch_size = 128
+    capacity = 1024
+    min_after_dequeue = 512
+
+    images_batch, labels_batch = tf.train.shuffle_batch(
+        [image, label], batch_size = batch_size,
+        capacity = capacity, min_after_dequeue = min_after_dequeue
     )
 
     with tf.Session() as sess:
@@ -187,15 +190,21 @@ if __name__ == '__main__':
 
         # Initialize coordinator & queue runner:
         coord = tf.train.Coordinator()
-        threads = tf.train.start_queue_runners(coord=coord)
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-        images_batch_val, labels_batch_val = sess.run(
-            [images_batch, labels_batch]
-        )
-
-        # Stop coordinator & queue runner:
-        coord.request_stop()
-        coord.join(threads)
+        try:
+            while not coord.should_stop():
+                images_batch_val, labels_batch_val = sess.run(
+                    [images_batch, labels_batch]
+                )
+        except tf.errors.OutOfRangeError:
+            print("Done training for {} steps.".format(iter_index))
+        finally:
+            print("Clear up session.")
+            # When done, ask the threads to stop
+            coord.request_stop()
+            # Wait for threads to finish
+            coord.join(threads)
 
     for index in np.random.choice(len(images_batch_val), 3):
         image, label = images_batch_val[index], labels_batch_val[index]

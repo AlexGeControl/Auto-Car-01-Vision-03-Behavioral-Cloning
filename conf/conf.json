@@ -1,0 +1,9 @@
+{	
+	"datasets": [
+		"data/udacity-sample-training",
+		"data/simple-track"
+	],
+
+	"model_logdir": "tf-logs",
+	"model_checkpoints": "checkpoints/behavioral-cloning-{}.ckpt"
+}

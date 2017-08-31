@@ -22,7 +22,7 @@ class Dataset:
         self.driving_log = pd.read_csv(
             join(dataset_path, Dataset.LOG_FILENAME)
         )
-
+        
         # Steering angle correction for left & right camera images:
         self.correction = steering_correction
 
@@ -41,14 +41,8 @@ class Dataset:
                 for val in
                 self.driving_log.ix[
                     self.idx,
-                    ['center', 'left', 'right', 'steering']
+                    [0, 1, 2, 3]
                 ].values
-            ]
-
-            # Format fields
-            (center, left, right) = [
-                join(self.dataset_path, filename)
-                for filename in (center, left, right)
             ]
             steering = float(steering)
 
