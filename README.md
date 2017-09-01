@@ -4,6 +4,8 @@
 
 ---
 
+<img src="output_videos/demo.gif" width="100%" alt="Behavioral Cloning for Autonomous Driving" />
+
 The goals of this project are the following:
 * Use the simulator to collect data of good driving behavior
 * Build, a convolution neural network in Keras that predicts steering angles from images
@@ -19,7 +21,7 @@ The goals of this project are the following:
 #### 1. Submission includes all required files and can be used to run the simulator in autonomous mode
 
 My project includes the following files:
-* **model.py**: the script to create and train the model
+* **Behavioral-Cloning.ipynb & model.py**: the script to create and train the model
 * **drive.py**: driving the car in autonomous mode
 * **model.h5**: the final convolution neural network for autonomous driving
 * **README.md**: technical report
@@ -37,80 +39,206 @@ The **model.py** file contains the code for training and saving the convolution 
 
 The file shows the pipeline I used for training and validating the model, and it contains comments to explain how the code works.
 
+---
+
 ### Model Architecture and Training Strategy
+
+---
 
 #### 1. An appropriate model architecture has been employed
 
-My model consists of a convolution neural network with 3x3 filter sizes and depths between 32 and 128 (model.py lines 18-24)
+My model is a slight modification of NVIDIA net. The layers and corresponding parameters are shown in the following table:
 
-The model includes RELU layers to introduce nonlinearity (code line 20), and the data is normalized in the model using a Keras lambda layer (code line 18).
+| Layer        |     Description	        				                                                             |
+|:------------:|:---------------------------------------------------------------------------------------------:|
+| standardize  | per image standardization                                                                     |
+| conv1				 | kernel: 3x3x32, stride: 1x1, padding: 'SAME', activation: 'ReLU', initialization: 'He normal' |
+| conv2				 | kernel: 3x3x48, stride: 1x1, padding: 'SAME', activation: 'ReLU', initialization: 'He normal' |
+| pool1	       | max pooling, kernel: 2x2, stride: 2x2                                                         |
+| conv3				 | kernel: 3x3x64, stride: 1x1, padding: 'SAME', activation: 'ReLU', initialization: 'He normal' |
+| pool2	       | max pooling, kernel: 2x2, stride: 2x2                                                         |
+| dropout1     | keep prob: 0.25                                                                               |
+| flattened    | fully connected layer input                                                                   |
+| fc1          | Nonex128, activation: 'ReLU', initialization: 'He normal'                                     |
+| fc2          | 128x64, activation: 'ReLU', initialization: 'He normal'                                       |
+| dropout2     | keep prob: 0.50                                                                               |
+| output       | 64x1, activation: 'linear', initialization: 'glorot uniform'                                  |
+
+The Keras code for model definition is as follows:
+
+```python
+def standardize(X):
+    """ Wrapper of Tensorflow for image standardization
+    """
+    # Set up session:
+    from keras.backend import tf as ktf
+
+    return ktf.map_fn(
+        lambda x: ktf.image.per_image_standardization(x),
+        X
+    )
+
+model = Sequential()
+
+# Preprocessing:
+model.add(
+    Lambda(
+        standardize,
+        input_shape = INPUT_SHAPE
+    )
+)
+# Convs:
+model.add(
+    Convolution2D(
+        32, 3, 3, border_mode='same',
+        activation='relu',
+        init='he_normal'
+    )
+)
+model.add(
+    Convolution2D(
+        48, 3, 3, border_mode='same',
+        activation='relu',
+        init='he_normal'
+    )
+)
+model.add(
+    MaxPooling2D(pool_size=(2, 2))
+)
+model.add(
+    Convolution2D(
+        64, 3, 3, border_mode='same',
+        activation='relu',
+        init='he_normal'
+    )
+)
+model.add(
+    MaxPooling2D(pool_size=(2, 2))
+)
+model.add(
+    Dropout(0.25)
+)
+# Flatten:
+model.add(
+    Flatten()
+)
+# Fully connected:
+model.add(
+    Dense(
+        128,
+        activation='relu',
+        init='he_normal'
+    )
+)
+model.add(
+    Dense(
+        64,
+        activation='relu',
+        init='he_normal'
+    )
+)
+model.add(
+    Dropout(0.50)
+)
+# Output:
+model.add(
+    Dense(
+        N_OUTPUT,
+        activation='linear'
+    )
+)
+
+model.compile(
+    loss='mean_squared_error',
+    optimizer=Adam(lr=1e-3),
+    metrics=['mae']
+)
+```
 
 #### 2. Attempts to reduce overfitting in the model
 
-The model contains dropout layers in order to reduce overfitting (model.py lines 21).
+Following methods are used to reduce overfitting:
 
-The model was trained and validated on different data sets to ensure that the model was not overfitting (code line 10-16). The model was tested by running it through the simulator and ensuring that the vehicle could stay on the track.
+1. Training data is augmented to generate more available data
+2. Train/Dev/Test split is used for model building & evaluation
+3. Training examples are balanced using sample weighting so as to strike a good balance between straight & curved lane performance
+
+The code snippet for sample weighting is as follows.
+
+```python
+def calculate_sample_weights(steering, weight_unit = 0.1, ratio = 0.5):
+    """ Calculate sample weights based on steering angle
+    """
+    # Make 0 steering sample have effective count '1':
+    num_effective = (np.absolute(y_train) + weight_unit) / weight_unit
+
+    # Try to strike a balance between straight & curve lane performance:
+    weights = (1.0 - ratio) * num_effective + ratio * (num_effective**2)
+
+    return weights
+```
+4. During the training process, dropout & early stopping are used to further prevent overfitting.
 
 #### 3. Model parameter tuning
 
-The model used an adam optimizer, so the learning rate was not tuned manually (model.py line 25).
+The should be tuned hyper-parameters for my network are as follows:
+
+| Parameter           |     Description	        				                                                             |
+|:-------------------:|:--------------------------------------------------------------------------------------------:|
+| steering correction | target steering correction for left & right camera images                                    |
+| weight unit         | steering unit for effective sample count calculation                                         |
+| ratio               | sample weight combination ratio                                                              |
+| learning rate       | learning rate for Adams optimizer                                                            |
+
+All the above hyper-parameters are tuned through a trial-and-error approach:
+
+* First train the network with chosen hyper parameters
+* Observe the network's performance on testing track and identify the scene in which it performs badly
+
+The final hyper parameters are as follows:
+
+| Parameter           |     Description	        				                                                             |
+|:-------------------:|:--------------------------------------------------------------------------------------------:|
+| steering correction | 0.25                                                                                         |
+| weight unit         | 0.10                                                                                         |
+| ratio               | 0.60                                                                                         |
+| learning rate       | 1e-3                                                                                         |
 
 #### 4. Appropriate training data
 
-Training data was chosen to keep the vehicle driving on the road. I used a combination of center lane driving, recovering from the left and right sides of the road ...
+I just used the given sample training data after I find add my own driving data could easily ruined the model performance since I'm a horrible simulator driver :)
 
-For details about how I created the training data, see the next section.
+---
 
 ### Model Architecture and Training Strategy
 
+---
+
 #### 1. Solution Design Approach
 
-The overall strategy for deriving a model architecture was to ...
+I just used NVIDIA net from the reference paper.
 
-My first step was to use a convolution neural network model similar to the ... I thought this model might be appropriate because ...
+After the first iteration I found it could attain decent performance in most scenes.
 
-In order to gauge how well the model was working, I split my image and steering angle data into a training and validation set. I found that my first model had a low mean squared error on the training set but a high mean squared error on the validation set. This implied that the model was overfitting.
-
-To combat the overfitting, I modified the model so that ...
-
-Then I ...
-
-The final step was to run the simulator to see how well the car was driving around track one. There were a few spots where the vehicle fell off the track... to improve the driving behavior in these cases, I ....
-
-At the end of the process, the vehicle is able to drive autonomously around the track without leaving the road.
+So I chose it as my basic network architecture and focused on tuning hyper parameters to further improve its performance.
 
 #### 2. Final Model Architecture
 
-The final model architecture (model.py lines 18-24) consisted of a convolution neural network with the following layers and layer sizes ...
-
-Here is a visualization of the architecture (note: visualizing the architecture is optional according to the project rubric)
-
-![alt text][image1]
+Please refer to **Model Architecture and Training Strategy** section for my final model architecture.
 
 #### 3. Creation of the Training Set & Training Process
 
-To capture good driving behavior, I first recorded two laps on track one using center lane driving. Here is an example image of center lane driving:
+I think the real challenge of this project is data collection & data preprocessing.
 
-![alt text][image2]
+* For **data collection**, after I realized I am a terrible in-simulator driver, I gave up generating data on my own since **the non-smoothing control inputs contained in my driving actions could only induce optimization difficulties to training process**
 
-I then recorded the vehicle recovering from the left side and right sides of the road back to center so that the vehicle would learn to .... These images show what a recovery looks like starting from ... :
+* For **data augmentation**, below methods are used to generate more training data:
 
-![alt text][image3]
-![alt text][image4]
-![alt text][image5]
+1. All three camera inputs are used and a steering correction for left & right camera images is used to estimate the proper control inputs
+2. All the images are flipped left to right and corresponding steerings are negated to double the training set size
+3. Random image are not generated since I think the steering input is strongly correlated with geometric structure in image.
+Keras's random image generator could easily distort the geometric structure in image and cause troubles for optimization process.
 
-Then I repeated this process on track two in order to get more data points.
+#### 4. Autonomous driving video demo
 
-To augment the data sat, I also flipped images and angles thinking that this would ... For example, here is an image that has then been flipped:
-
-![alt text][image6]
-![alt text][image7]
-
-Etc ....
-
-After the collection process, I had X number of data points. I then preprocessed this data by ...
-
-
-I finally randomly shuffled the data set and put Y% of the data into a validation set.
-
-I used this training data for training the model. The validation set helped determine if the model was over or under fitting. The ideal number of epochs was Z as evidenced by ... I used an adam optimizer so that manually training the learning rate wasn't necessary.
+The demo could be reached through this link [Autonomous Driving Video Demo](output_videos/demo.mp4)

@@ -1,9 +1,11 @@
-{	
+{
 	"datasets": [
-		"data/udacity-sample-training",
-		"data/simple-track"
+		"data/udacity-sample-training"
 	],
 
+	"preprocessor_output_size": [64, 48],
+
+	"model_input_size": [48, 64, 3],
 	"model_logdir": "tf-logs",
 	"model_checkpoints": "checkpoints/behavioral-cloning-{}.ckpt"
 }

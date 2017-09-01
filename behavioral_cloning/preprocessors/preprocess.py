@@ -10,7 +10,7 @@ class Preprocessor(TransformerMixin):
         self,
         input_size = (320, 160),
         cropping = ((50, 20), (0, 0)),
-        output_size = (64, 18)
+        output_size = (64, 45)
     ):
         W, H = input_size
         (

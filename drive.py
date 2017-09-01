@@ -13,6 +13,7 @@ from flask import Flask
 from io import BytesIO
 
 # Preprocessing:
+from behavioral_cloning.utils.conf import Conf
 from behavioral_cloning.preprocessors import Preprocessor
 # Model:
 from keras.models import load_model
@@ -24,7 +25,10 @@ app = Flask(__name__)
 model = None
 prev_image_array = None
 
-preprocessor = Preprocessor()
+conf = Conf('conf/conf.json')
+preprocessor = Preprocessor(
+    output_size=tuple(conf.preprocessor_output_size)
+)
 
 class SimplePIController:
     def __init__(self, Kp, Ki):
@@ -46,8 +50,8 @@ class SimplePIController:
 
         return self.Kp * self.error + self.Ki * self.integral
 
-controller = SimplePIController(0.1, 0.001)
-set_speed = 9
+controller = SimplePIController(0.1, 0.002)
+set_speed = 10
 controller.set_desired(set_speed)
 
 @sio.on('telemetry')
