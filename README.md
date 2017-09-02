@@ -30,7 +30,7 @@ My project includes the following files:
 Using the simulator and my **drive.py** file, the car can be driven autonomously around the track by executing
 
 ```sh
-python drive.py model.h5
+python drive.py model-[RESOLUTION-WIDTH]-[RESOLUTION-HEIGHT]-[QUALITY].h5
 ```
 
 #### 3. Submission code is usable and readable
@@ -67,17 +67,6 @@ My model is a slight modification of NVIDIA net. The layers and corresponding pa
 The Keras code for model definition is as follows:
 
 ```python
-def standardize(X):
-    """ Wrapper of Tensorflow for image standardization
-    """
-    # Set up session:
-    from keras.backend import tf as ktf
-
-    return ktf.map_fn(
-        lambda x: ktf.image.per_image_standardization(x),
-        X
-    )
-
 model = Sequential()
 
 # Preprocessing:
@@ -161,22 +150,7 @@ Following methods are used to reduce overfitting:
 
 1. Training data is augmented to generate more available data
 2. Train/Dev/Test split is used for model building & evaluation
-3. Training examples are balanced using sample weighting so as to strike a good balance between straight & curved lane performance
-
-The code snippet for sample weighting is as follows.
-
-```python
-def calculate_sample_weights(steering, weight_unit = 0.1, ratio = 0.5):
-    """ Calculate sample weights based on steering angle
-    """
-    # Make 0 steering sample have effective count '1':
-    num_effective = (np.absolute(y_train) + weight_unit) / weight_unit
-
-    # Try to strike a balance between straight & curve lane performance:
-    weights = (1.0 - ratio) * num_effective + ratio * (num_effective**2)
-
-    return weights
-```
+3. Training examples are weighted so as to strike a good balance between straight & curved lane performance
 4. During the training process, dropout & early stopping are used to further prevent overfitting.
 
 #### 3. Model parameter tuning
@@ -214,21 +188,40 @@ I just used the given sample training data after I find add my own driving data 
 
 ---
 
-#### 1. Solution Design Approach
+#### 1. Discusses the approach taken for deriving and designing a model architecture fit for solving the given problem.
 
-I just used NVIDIA net from the reference paper.
+My whole iteration process is built upon NVIDIA net [NVIDIA net](end-to-end-deep-network-for-autonomous-car.pdf)
 
-After the first iteration I found it could attain decent performance in most scenes.
+* In the first iteration:
 
-So I chose it as my basic network architecture and focused on tuning hyper parameters to further improve its performance.
+1. the layers are stacked exactly as it in final model except dropout2 is not used
+2. kernel size for conv layers are changed from 5-by-5 to 3-by-3 since smaller image is used than NVIDIA net
+3. the number of hidden units for the two fully-connected layers are 256 & 128, respectively
+
+The weighting ratio between straight & curved lane is set to default value, 0.5.
+
+* But after the first training iteration, I observed:
+1. the U-turn of validation error, which is the typical indication of overfitting, and the discrepancy between training & validation performance.
+2. the models poor performance on curved lanes, especially the two sharp turns after going over the stone bridge
+
+* So in the second iteration:
+
+1. dropout2 is added for fully-connected layer output
+2. the number of hidden units are shrinked to 128 & 64, respectively
+
+The weighting ratio between the two types of lane is increased to final value 0.6
+
+This network could not attain the fancy mae as the first network did, but it performs well on the testing track.
+
+So I chose the architecture attained in iteration 2 as my final network architecture.
 
 #### 2. Final Model Architecture
 
 Please refer to **Model Architecture and Training Strategy** section for my final model architecture.
 
-#### 3. Creation of the Training Set & Training Process
+#### 3. Discuss how the dataset was generated and show examples of images from the dataset
 
-I think the real challenge of this project is data collection & data preprocessing.
+I think the real challenge of this project is **data collection & data preprocessing**.
 
 * For **data collection**, after I realized I am a terrible in-simulator driver, I gave up generating data on my own since **the non-smoothing control inputs contained in my driving actions could only induce optimization difficulties to training process**
 
@@ -238,6 +231,108 @@ I think the real challenge of this project is data collection & data preprocessi
 2. All the images are flipped left to right and corresponding steerings are negated to double the training set size
 3. Random image are not generated since I think the steering input is strongly correlated with geometric structure in image.
 Keras's random image generator could easily distort the geometric structure in image and cause troubles for optimization process.
+<img src="writeup_images/01-image-augmentation-demo.png" width="100%" alt="Image Augmentation" />
+4. The top 50 and bottom 20 pixels are cropped to reduce each image to 90-by-320(done in transformer Preprocessor)
+5. Image is resized to 48-by-64(done in transformer Preprocessor)
+6. Image is standardized before it is fed into the network(done in standardize layer of network)
+<img src="writeup_images/01-image-preprocessing-demo.png" width="100%" alt="Image Preprocessing" />
+
+Below is the code snippet for [Preprocessor](behavioral_cloning/preprocessors/preprocess.py)
+
+```python
+class Preprocessor(TransformerMixin):
+    def __init__(
+        self,
+        input_size = (320, 160),
+        cropping = ((50, 20), (0, 0)),
+        output_size = (64, 45)
+    ):
+        W, H = input_size
+        (
+            (TOP_OFFSET, BOTTOM_OFFSET),
+            (LEFT_OFFSET, RIGHT_OFFSET)
+        ) = cropping
+
+        self.top = TOP_OFFSET
+        self.bottom = H - BOTTOM_OFFSET
+        self.left = LEFT_OFFSET
+        self.right = W - RIGHT_OFFSET
+
+        self.output_size = output_size
+
+    def transform(self, X):
+        """ Preprocess raw frames
+        """
+        return np.asarray(
+            [self._resize(x) for x in X]
+        )
+
+    def fit(self, X, y=None):
+        return self
+
+    def set_params(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+    def _resize(self, X):
+        """
+        """
+        # Crop:
+        cropped = X[self.top:self.bottom, self.left:self.right]
+
+        # Resize:
+        resized = cv2.resize(cropped, self.output_size)
+
+        return resized
+```
+
+Below is the code snippet for mapping function implementation used standardize layer
+
+Here tensorflow must be imported to make its function work in Keras Lambda layer
+
+```
+def standardize(X):
+    """ Wrapper of Tensorflow for image standardization
+    ""    # Set up session:
+    from keras.backend import tf as ktf
+
+    return ktf.map_fn(
+        lambda x: ktf.image.per_image_standardization(x),
+        X
+    )
+```
+
+The dataset is further processed through sample weighting.
+
+The code snippet for sample weighting is as follows.
+
+```python
+def calculate_sample_weights(steering, weight_unit = 0.1, ratio = 0.5):
+    """ Calculate sample weights based on steering angle
+    """
+    # Make 0 steering sample have effective count '1':
+    num_effective = (np.absolute(y_train) + weight_unit) / weight_unit
+
+    # Try to strike a balance between straight & curve lane performance:
+    weights = (1.0 - ratio) * num_effective + ratio * (num_effective**2)
+
+    return weights
+
+model.fit(
+    X_train, y_train,
+    sample_weight = calculate_sample_weights(y_train, ratio = 0.6),
+    batch_size = BATCH_SIZE,
+    nb_epoch = N_EPOCHES,
+    verbose = 1,
+    shuffle=True, validation_split=0.10, callbacks=callbacks
+)
+```
+
+If even weight is used, training with mini-batch cannot effectively learn the control behavior around sharp turns
+So samples are re-weighted by its correct steering angle.
+
+Here is the visualization of raw & re-weighted steering distribution:
+
+<img src="writeup_images/01-dataset-balancing.png" width="100%" alt="Steering Distribution" />
 
 #### 4. Autonomous driving video demo
 

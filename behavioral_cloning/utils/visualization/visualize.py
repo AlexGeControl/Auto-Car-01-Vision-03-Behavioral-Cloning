@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 import matplotlib.pyplot as plt
 
@@ -25,69 +26,53 @@ def draw_image_mosaic(images, size):
     plt.imshow(image_mosaic)
     plt.show()
 
-def draw_label_distributions(class_counts, num_classes):
-    """ Visualize label distributions by subsets
+def draw_steering_distributions(steerings, ratio=0.5):
+    """ Visualize steering distribution
     """
-    # Parse label counts:
-    class_counts = class_counts / np.sum(class_counts, axis = 1, keepdims=True)
-    (counts_train, counts_valid, counts_test) = class_counts
+    # Raw steering angles:
+    df_steering_dist = pd.DataFrame(
+        data = steerings,
+        columns = ['steering']
+    )
+    # Classes:
+    df_steering_dist['class'] = np.round(
+        (np.absolute(df_steering_dist['steering']) + 0.1)/0.1
+    ).astype(np.int)
+    # Straight line weight
+    df_steering_dist['straight_weight'] = df_steering_dist['class']
+    # Curved line weight
+    df_steering_dist['curved_weight'] = df_steering_dist['class'].apply(lambda x: x**2)
+    # Sample weight:
+    df_steering_dist['sample_weight'] = (
+        (1.0 - ratio)*df_steering_dist['straight_weight'] + ratio*df_steering_dist['curved_weight']
+    )
+    # Summary
+    df_steering_dist = df_steering_dist.groupby('class').sum()
 
-    classes = np.arange(num_classes)
-
-    width = 0.30
+    classes = df_steering_dist.index.values
+    width = 0.40
 
     fig, ax = plt.subplots(figsize=(16,9))
-    legend_train = ax.bar(
-        classes - 1.5*width,
-        counts_train,
+    legend_original = ax.bar(
+        classes - 0.5*width,
+        df_steering_dist['straight_weight'],
         width, color='r'
     )
-    legend_valid = ax.bar(
-        classes - 0.5*width,
-        counts_valid,
-        width, color='g'
-    )
-    legend_test = ax.bar(
+    legend_balanced = ax.bar(
         classes + 0.5*width,
-        counts_test,
-        width, color='b'
+        df_steering_dist['sample_weight'],
+        width, color='g'
     )
 
     # add some text for labels, title and axes ticks
-    ax.set_ylabel('Percentange')
-    ax.set_title('Percentage by Subset')
+    ax.set_xlabel('Steering')
+    ax.set_ylabel('Weight')
+    ax.set_title('Steering Distribution')
     ax.set_xticks(classes)
 
     ax.legend(
-        (legend_train[0], legend_valid[0], legend_test[0]),
-        ('Train', 'Dev', 'Test')
+        (legend_original[0], legend_balanced[0]),
+        ('Original', 'Balanced')
     )
-
-    plt.show()
-
-def draw_top_k(image, labels, probs):
-    """ Visualize top K predictions
-    """
-    fig, axes = plt.subplots(1, 2)
-
-    # Parse data:
-    N = len(labels)
-    label_pos = np.arange(N)
-
-    # Top K predictions:
-    axes[0].barh(
-        label_pos, probs,
-        color='green'
-    )
-    axes[0].set_yticks(label_pos)
-    axes[0].set_yticklabels(labels)
-    axes[0].invert_yaxis()  # labels read top-to-bottom
-    axes[0].set_xlabel('Probability')
-    axes[0].set_title("Top {}".format(N))
-
-    # Input image:
-    axes[1].imshow(image)
-    axes[1].set_axis_off()
-    axes[1].set_title("Web Image")
 
     plt.show()
